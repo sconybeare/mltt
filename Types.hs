@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 import Data.Word
 import Control.Monad.State.Lazy
+import Data.Functor.Identity
 
 data Abstraction = Abs Variable Expr Expr
   deriving (Show,Eq,Ord)
@@ -58,10 +59,10 @@ lookup_value x ctx = case lookup x ctx of
 extend :: Variable -> Expr -> Maybe Expr -> Context -> Context
 extend x t v ctx = (x, (t, v)) : ctx
 
-infer_type :: Context -> Expr -> StateT (Either String) Expr
-infer_type ctx (Var x) = lookup_ty x ctx
-infer_type _ (Universe k) = Right $ Universe (k+1)
-infer_type ctx (Pi (Abs x t1 t2)) = 
+infer_type :: Context -> Expr -> StateT Integer (Either String) Expr
+infer_type ctx (Var x) = lift $ lookup_ty x ctx
+infer_type _ (Universe k) = lift $ Right $ Universe (k+1)
+infer_type ctx (Pi (Abs x t1 t2)) =
                 ((Universe . ) . max) <$>
                 (infer_universe ctx t1) <*>
                 (infer_universe (extend x t1 Nothing ctx) t2)
@@ -73,13 +74,69 @@ infer_type ctx (App e1 e2) = do
                 Abs x s t <- infer_pi ctx e1
                 te <- infer_type ctx e2
                 _ <- check_equal ctx s te
-                _ $ subst [(x,e2)] t
+                mapStateT (Right . runIdentity) (subst [(x,e2)] t)
 
-infer_universe :: Context -> Expr -> Either String Word
-infer_universe = undefined
+infer_universe :: Context -> Expr -> StateT Integer (Either String) Word
+infer_universe ctx t = do
+  u <- infer_type ctx t
+  n <- normalize ctx u
+  case n of
+    Universe k -> return k
+    _          -> lift $ Left "type expected"
 
-infer_pi :: Context -> Expr -> Either String Abstraction
-infer_pi = undefined
+infer_pi :: Context -> Expr -> StateT Integer (Either String) Abstraction
+infer_pi ctx e = do
+  t <- infer_type ctx e
+  n <- normalize ctx t
+  case n of
+    Pi ab -> return ab
+    _     -> lift $ Left "function expected"
 
-check_equal :: Context -> Expr -> Expr -> Either String ()
-check_equal = undefined
+check_equal :: Context -> Expr -> Expr -> StateT Integer (Either String) ()
+check_equal ctx e1 e2 = do
+  eq <- equal ctx e1 e2
+  case eq of
+    True  -> return ()
+    False -> lift $
+      Left ("expressions " ++ show e1 ++ " and " ++ show e2 ++ "are not equal")
+
+normalize :: Context -> Expr -> StateT Integer (Either String) Expr
+normalize ctx (Var x) = case lookup x ctx of
+  Nothing -> lift $ Left ("unknown identifier " ++ show x)
+  Just (_,Nothing) -> return $ Var x
+  Just (_,Just val) -> return $ val
+normalize ctx (App e1 e2) = do
+  e2_n <- normalize ctx e2
+  e1_n <- normalize ctx e1
+  case e1_n of
+    Lambda (Abs x _ e1') -> mapStateT (Right . runIdentity) $
+                            subst [(x,e2)] e1'
+    e1_n -> return $ App e1_n e2_n
+normalize ctx (Universe k) = return $ Universe k
+normalize ctx (Pi ab) = Pi <$> normalize_abstraction ctx ab
+normalize ctx (Lambda ab) = Lambda <$> normalize_abstraction ctx ab
+
+normalize_abstraction :: Context ->
+                         Abstraction ->
+                         StateT Integer (Either String) Abstraction
+normalize_abstraction ctx (Abs x t e) = do
+  t' <- normalize ctx t
+  Abs x t <$> normalize (extend x t Nothing ctx) e
+
+equal :: Context -> Expr -> Expr -> StateT Integer (Either String) Bool
+equal ctx e1 e2 = do
+  e1' <- normalize ctx e1
+  e2' <- normalize ctx e2
+  mapStateT (Right . runIdentity) $ equal' e1' e2'
+
+equal' :: Expr -> Expr -> State Integer Bool
+equal' (Var x1) (Var x2) = return $ x1 == x2
+equal' (App e11 e12) (App e21 e22) = (&&) <$> equal' e11 e21 <*> equal' e12 e22
+equal' (Universe k1) (Universe k2) = return $ k1 == k2
+equal' (Pi a1) (Pi a2) = equal_abstraction a1 a2
+equal' (Lambda a1) (Lambda a2) = equal_abstraction a1 a2
+equal' _ _ = return False
+
+equal_abstraction :: Abstraction -> Abstraction -> State Integer Bool
+equal_abstraction (Abs x t1 e1) (Abs y t2 e2) =
+                (&&) <$> equal' t1 t2 <*> (equal' e1 =<< subst [(y,Var x)] e2)
