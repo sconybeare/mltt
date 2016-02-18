@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wall #-}
 
-module Types where
+module MLTT.Types where
 
 import           Data.Word
 
@@ -18,3 +18,5 @@ data Expr = Var Variable
           | Lambda Abstraction
           | App Expr Expr
           deriving (Show, Eq, Ord)
+
+type Context = [(Variable, (Expr, Maybe Expr))]
