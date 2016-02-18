@@ -46,7 +46,6 @@ library
     default-language:     Haskell2010
     exposed-modules:      MLTT
                           MLTT.Types
-                          MLTT.Types.Abstraction
                           MLTT.Types.Expr
                           MLTT.Types.InferException
                           MLTT.Types.Variable
