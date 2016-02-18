@@ -1,5 +1,7 @@
 module Infer where
 
+import           Control.Monad.State.Lazy
+import           Data.Functor.Identity
 import           Types
 
 refresh :: Variable -> State Integer Variable
@@ -37,7 +39,7 @@ lookupValue :: Variable -> Context -> Either String Expr
 lookupValue x ctx = case lookup x ctx of
   Just (_, Just v)  -> Right v
   Just (_, Nothing) -> Left $ "Could not evaluate expression."
-  othing            -> Left $ "Symbol " ++ show x ++ " not found."
+  Nothing           -> Left $ "Symbol " ++ show x ++ " not found."
 
 
 extend :: Variable -> Expr -> Maybe Expr -> Context -> Context
@@ -114,12 +116,12 @@ equal ctx e1 e2 = do
   mapStateT (Right . runIdentity) $ equal' e1' e2'
 
 equal' :: Expr -> Expr -> State Integer Bool
-equal' (Var x1) (Var x2) = return $ x1 == x2
+equal' (Var x1)      (Var x2)      = return $ x1 == x2
 equal' (App e11 e12) (App e21 e22) = (&&) <$> equal' e11 e21 <*> equal' e12 e22
 equal' (Universe k1) (Universe k2) = return $ k1 == k2
-equal' (Pi a1) (Pi a2) = equalAbstraction a1 a2
-equal' (Lambda a1) (Lambda a2) = equalAbstraction a1 a2
-equal' _ _ = return False
+equal' (Pi a1) (Pi a2)             = equalAbstraction a1 a2
+equal' (Lambda a1) (Lambda a2)     = equalAbstraction a1 a2
+equal' _ _                         = return False
 
 equalAbstraction :: Abstraction -> Abstraction -> State Integer Bool
 equalAbstraction (Abs x t1 e1) (Abs y t2 e2) =

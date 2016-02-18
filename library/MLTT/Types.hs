@@ -2,8 +2,6 @@
 
 module Types where
 
-import           Control.Monad.State.Lazy
-import           Data.Functor.Identity
 import           Data.Word
 
 data Variable = StringVar String
