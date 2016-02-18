@@ -1,22 +1,22 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
-import Data.Word
-import Control.Monad.State.Lazy
-import Data.Functor.Identity
+import           Control.Monad.State.Lazy
+import           Data.Functor.Identity
+import           Data.Word
 
 data Abstraction = Abs Variable Expr Expr
-  deriving (Show,Eq,Ord)
+                 deriving (Show,Eq,Ord)
 
 data Expr = Var Variable
           | Universe Word
           | Pi Abstraction
           | Lambda Abstraction
           | App Expr Expr
-  deriving (Show,Eq,Ord)
+          deriving (Show, Eq, Ord)
 
 data Variable = StringVar String
               | GenSym String Integer
               | Dummy
-  deriving (Show,Eq,Ord)
+              deriving (Show, Eq, Ord)
 
 refresh :: Variable -> State Integer Variable
 refresh (StringVar x) = do
@@ -116,9 +116,9 @@ normalize ctx (Universe k) = return $ Universe k
 normalize ctx (Pi ab) = Pi <$> normalize_abstraction ctx ab
 normalize ctx (Lambda ab) = Lambda <$> normalize_abstraction ctx ab
 
-normalize_abstraction :: Context ->
-                         Abstraction ->
-                         StateT Integer (Either String) Abstraction
+normalize_abstraction :: Context
+                      -> Abstraction
+                      -> StateT Integer (Either String) Abstraction
 normalize_abstraction ctx (Abs x t e) = do
   t' <- normalize ctx t
   Abs x t <$> normalize (extend x t Nothing ctx) e
