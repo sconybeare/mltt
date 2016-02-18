@@ -3,8 +3,13 @@ import           Control.Monad.State.Lazy
 import           Data.Functor.Identity
 import           Data.Word
 
+data Variable = StringVar String
+              | GenSym String Integer
+              | Dummy
+              deriving (Show, Eq, Ord)
+
 data Abstraction = Abs Variable Expr Expr
-                 deriving (Show,Eq,Ord)
+                 deriving (Show, Eq, Ord)
 
 data Expr = Var Variable
           | Universe Word
@@ -12,11 +17,6 @@ data Expr = Var Variable
           | Lambda Abstraction
           | App Expr Expr
           deriving (Show, Eq, Ord)
-
-data Variable = StringVar String
-              | GenSym String Integer
-              | Dummy
-              deriving (Show, Eq, Ord)
 
 refresh :: Variable -> State Integer Variable
 refresh (StringVar x) = do
