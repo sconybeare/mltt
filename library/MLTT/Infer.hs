@@ -1,135 +1,123 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module MLTT.Infer where
 
-import           Control.Monad.State.Lazy
+import           Control.Monad
 import           Data.Functor.Identity
 import           Data.Maybe
-import           Data.String.Here
 
 import           MLTT.Types
 
-refresh :: Variable -> State Integer Variable
-refresh (StringVar x) = do k <- get
+refresh :: (MonadInfer m) => Variable -> m Variable
+refresh (StringVar v) = do k <- get
                            put $ k + 1
-                           return $ GenSym x k
-refresh (GenSym x _)  = refresh (StringVar x)
+                           return $ GenSym v k
+refresh (GenSym v _)  = refresh (StringVar v)
 refresh Dummy         = refresh (StringVar "_")
 
-subst :: [(Variable, Expr)] -> Expr -> State Integer Expr
-subst s (Var x)      = return $ fromMaybe (Var x) $ lookup x s
+subst :: (MonadInfer m) => [(Variable, Expr)] -> Expr -> m Expr
+subst s (Var v)      = return $ fromMaybe (Var v) $ lookup v s
 subst _ (Universe k) = return $ Universe k
-subst s (Pi a)       = Pi     <$> substAbstraction s a
-subst s (Lambda a)   = Lambda <$> substAbstraction s a
+subst s (Pi a)       = Pi     <$> substAbs s a
+subst s (Lambda a)   = Lambda <$> substAbs s a
 subst s (App e1 e2)  = App    <$> subst s e1 <*> subst s e2
 
-substAbstraction :: [(Variable, Expr)]
-                 -> Abstraction
-                 -> State Integer Abstraction
-substAbstraction s (Abs x t e) = do x' <- refresh x
-                                    t' <- subst s t
-                                    e' <- subst ((x, Var x') : s) e
-                                    return $ Abs x' t' e'
+substAbs :: (MonadInfer m) => [(Variable, Expr)] -> Abstraction -> m Abstraction
+substAbs s (Abs v t e) = do v' <- refresh v
+                            t' <- subst s t
+                            e' <- subst ((v, Var v') : s) e
+                            return $ Abs v' t' e'
 
-lookupType :: Variable -> Context -> Either String Expr
-lookupType x ctx = case lookup x ctx
-                   of Just (t, _) -> Right t
-                      Nothing     -> Left [i|Symbol ${x} not found|]
+lookupType :: (MonadInfer m) => Variable -> Context -> m Expr
+lookupType v ctx = case lookup v ctx
+                   of Just (t, _) -> return t
+                      Nothing     -> throwSymbolNotFound v
 
-lookupValue :: Variable -> Context -> Either String Expr
-lookupValue x ctx
-  | Just (_, Just v)  <- lookup x ctx = Right v
-  | Just (_, Nothing) <- lookup x ctx = Left [i|Could not evaluate expression|]
-  | Nothing           <- lookup x ctx = Left [i|Symbol ${x} not found|]
+lookupValue :: (MonadInfer m) => Variable -> Context -> m Expr
+lookupValue v ctx = helper $ lookup v ctx
+  where
+    helper (Just (_, Just e))  = return e
+    helper (Just (_, Nothing)) = throwCouldNotEvaluate
+    helper Nothing             = throwSymbolNotFound v
 
 extend :: Variable -> Expr -> Maybe Expr -> Context -> Context
-extend x t v ctx = (x, (t, v)) : ctx
+extend v t x ctx = (v, (t, x)) : ctx
 
-inferType :: Context -> Expr -> StateT Integer (Either String) Expr
-inferType ctx (Var x)              = lift $ lookupType x ctx
-inferType _   (Universe k)         = lift $ Right $ Universe (k + 1)
+inferType :: (MonadInfer m) => Context -> Expr -> m Expr
+inferType ctx (Var x)              = lookupType x ctx
+inferType _   (Universe k)         = return $ Universe $ k + 1
 inferType ctx (Pi (Abs x t1 t2))   = inferTypeHelperPi ctx x t1 t2
 inferType ctx (Lambda (Abs x t e)) = inferTypeHelperLambda ctx x t e
 inferType ctx (App e1 e2)          = inferTypeHelperApp ctx e1 e2
 
-inferTypeHelperPi :: Context -> Variable -> Expr -> Expr
-                  -> StateT Integer (Either String) Expr
-inferTypeHelperPi ctx x t1 t2 = do
-  a <- inferUniverse ctx t1
-  b <- inferUniverse (extend x t1 Nothing ctx) t2
-  return $ Universe $ max a b
+inferTypeHelperPi :: (MonadInfer m)
+                     => Context -> Variable -> Expr -> Expr -> m Expr
+inferTypeHelperPi ctx v x y = do a <- inferUniverse ctx x
+                                 b <- inferUniverse (extend v x Nothing ctx) y
+                                 return $ Universe $ max a b
 
-inferTypeHelperLambda :: Context -> Variable -> Expr -> Expr
-                      -> StateT Integer (Either String) Expr
-inferTypeHelperLambda ctx x t e = do inferUniverse ctx t
-                                     Pi . Abs x t
-                                       <$> inferType (extend x t Nothing ctx) e
+inferTypeHelperLambda :: (MonadInfer m)
+                         => Context -> Variable -> Expr -> Expr -> m Expr
+inferTypeHelperLambda ctx v t e = do inferUniverse ctx t
+                                     Pi . Abs v t
+                                       <$> inferType (extend v t Nothing ctx) e
 
-inferTypeHelperApp :: Context -> Expr -> Expr
-                   -> StateT Integer (Either String) Expr
-inferTypeHelperApp ctx e1 e2 = do Abs x s t <- inferPi ctx e1
-                                  te <- inferType ctx e2
-                                  checkEqual ctx s te
-                                  mapStateT
-                                    (Right . runIdentity)
-                                    (subst [(x, e2)] t)
+inferTypeHelperApp :: (MonadInfer m) => Context -> Expr -> Expr -> m Expr
+inferTypeHelperApp ctx x y = do Abs v s t <- inferPi ctx x
+                                inferType ctx y >>= checkEqual ctx s
+                                subst [(v, y)] t
 
-inferUniverse :: Context -> Expr -> StateT Integer (Either String) Word
+inferUniverse :: (MonadInfer m) => Context -> Expr -> m Word
 inferUniverse ctx t = do u <- inferType ctx t
                          n <- normalize ctx u
                          case n of
                            Universe k -> return k
-                           _          -> lift $ Left "type expected"
+                           _          -> throwTypeExpected
 
-inferPi :: Context -> Expr -> StateT Integer (Either String) Abstraction
+inferPi :: (MonadInfer m) => Context -> Expr -> m Abstraction
 inferPi ctx e = do t <- inferType ctx e
                    n <- normalize ctx t
                    case n of
                      Pi ab -> return ab
-                     _     -> lift $ Left "function expected"
+                     _     -> throwFunctionExpected
 
-checkEqual :: Context -> Expr -> Expr -> StateT Integer (Either String) ()
-checkEqual ctx e1 e2 = do
-  eq <- equal ctx e1 e2
-  when eq $ lift $ Left [i|expressions ${e1} and ${e2} are not equal|]
+checkEqual :: (MonadInfer m) => Context -> Expr -> Expr -> m ()
+checkEqual ctx x y = equal ctx x y >>= (`when` throwExpressionsNotEqual x y)
 
-normalize :: Context -> Expr -> StateT Integer (Either String) Expr
-normalize ctx (Var x)
-  | Nothing           <- lookup x ctx = lift $ Left [i|unknown identifier ${x}|]
-  | Just (_, Nothing) <- lookup x ctx = return $ Var x
-  | Just (_, Just v)  <- lookup x ctx = return v
-normalize ctx (App e1 e2) = do
-  norm2 <- normalize ctx e2
-  norm1 <- normalize ctx e1
-  case norm1 of
-    Lambda (Abs x _ e1') -> mapStateT (Right . runIdentity)
-                            $ subst [(x, e2)] e1'
-    _                    -> return $ App norm1 norm2
-normalize ctx (Universe k) = return $ Universe k
+normalize :: (MonadInfer m) => Context -> Expr -> m Expr
+normalize _   (Universe k) = return $ Universe k
 normalize ctx (Pi ab)      = Pi     <$> normalizeAbstraction ctx ab
 normalize ctx (Lambda ab)  = Lambda <$> normalizeAbstraction ctx ab
+normalize ctx (Var v)      = normalizeHelperVar v $ lookup v ctx
+normalize ctx (App x y)    = do x' <- normalize ctx x
+                                y' <- normalize ctx y
+                                case x' of
+                                  Lambda (Abs v _ e') -> subst [(v, y)] e'
+                                  _                   -> return $ App x' y'
 
-normalizeAbstraction :: Context
-                     -> Abstraction
-                     -> StateT Integer (Either String) Abstraction
-normalizeAbstraction ctx (Abs x t e) = do
-  t' <- normalize ctx t
-  Abs x t <$> normalize (extend x t Nothing ctx) e
+normalizeHelperVar :: (MonadInfer m)
+                      => Variable -> Maybe (Expr, Maybe Expr) -> m Expr
+normalizeHelperVar v Nothing             = throwUnknownIdentifier v
+normalizeHelperVar v (Just (_, Nothing)) = return $ Var v
+normalizeHelperVar _ (Just (_, Just x))  = return x
 
-equal :: Context -> Expr -> Expr -> StateT Integer (Either String) Bool
-equal ctx e1 e2 = do
-  e1' <- normalize ctx e1
-  e2' <- normalize ctx e2
-  mapStateT (Right . runIdentity) $ equal' e1' e2'
+normalizeAbstraction :: (MonadInfer m)
+                        => Context -> Abstraction -> m Abstraction
+normalizeAbstraction ctx (Abs v t e) = do
+  normalize ctx t
+  Abs v t <$> normalize (extend v t Nothing ctx) e
 
-equal' :: Expr -> Expr -> State Integer Bool
-equal' (Var x1)      (Var x2)      = return $ x1 == x2
+equal :: (MonadInfer m) => Context -> Expr -> Expr -> m Bool
+equal ctx x y = join (equal' <$> normalize ctx x <*> normalize ctx y)
+
+equal' :: (MonadInfer m) => Expr -> Expr -> m Bool
+equal' (Var v1)      (Var v2)      = return $ v1 == v2
 equal' (Universe k1) (Universe k2) = return $ k1 == k2
-equal' (App e11 e12) (App e21 e22) = (&&) <$> equal' e11 e21 <*> equal' e12 e22
+equal' (App x1 y1)   (App x2 y2)   = (&&) <$> equal' x1 x2 <*> equal' y1 y2
 equal' (Pi a1)       (Pi a2)       = equalAbstraction a1 a2
 equal' (Lambda a1)   (Lambda a2)   = equalAbstraction a1 a2
 equal' _             _             = return False
 
-equalAbstraction :: Abstraction -> Abstraction -> State Integer Bool
-equalAbstraction (Abs x t1 e1) (Abs y t2 e2)
-  = (&&) <$> equal' t1 t2 <*> (equal' e1 =<< subst [(y, Var x)] e2)
+equalAbstraction :: (MonadInfer m) => Abstraction -> Abstraction -> m Bool
+equalAbstraction (Abs v1 t1 x) (Abs v2 t2 y)
+  = (&&) <$> equal' t1 t2 <*> (equal' x =<< subst [(v2, Var v1)] y)

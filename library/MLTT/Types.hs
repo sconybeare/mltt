@@ -1,22 +1,18 @@
-{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE ConstraintKinds  #-}
+{-# LANGUAGE FlexibleContexts #-}
 
-module MLTT.Types where
+module MLTT.Types ( module Exported
+                  , Context
+                  , MonadInfer
+                  ) where
 
-import           Data.Word
+import           MLTT.Types.Expr           as Exported
+import           MLTT.Types.InferException as Exported
+import           MLTT.Types.Variable       as Exported
 
-data Variable = StringVar String
-              | GenSym String Integer
-              | Dummy
-              deriving (Show, Eq, Ord)
-
-data Abstraction = Abs Variable Expr Expr
-                 deriving (Show, Eq, Ord)
-
-data Expr = Var Variable
-          | Universe Word
-          | Pi Abstraction
-          | Lambda Abstraction
-          | App Expr Expr
-          deriving (Show, Eq, Ord)
+import           Control.Monad.Catch       as Exported (MonadThrow, throwM)
+import           Control.Monad.State.Class as Exported (MonadState, get, put)
 
 type Context = [(Variable, (Expr, Maybe Expr))]
+
+type MonadInfer m = (MonadState Integer m, MonadThrow m)
