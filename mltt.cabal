@@ -39,6 +39,7 @@ library
                         , exceptions            == 0.8.*
 
                         -- Miscellaneous
+                        , haskeline             == 0.7.*
                         , ansi-wl-pprint        == 0.6.*
                         , data-fix              == 0.0.*
                         , here                  == 1.2.*

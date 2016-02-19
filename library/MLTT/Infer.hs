@@ -3,10 +3,15 @@
 module MLTT.Infer where
 
 import           Control.Monad
+import           Control.Monad.Catch
+import           Control.Monad.State.Strict (evalStateT)
 import           Data.Functor.Identity
 import           Data.Maybe
 
 import           MLTT.Types
+
+infer :: (MonadThrow m) => Context -> Expr -> m Expr
+infer ctx = flip evalStateT 0 . inferType ctx
 
 refresh :: (MonadInfer m) => Variable -> m Variable
 refresh (StringVar v) = do k <- get
