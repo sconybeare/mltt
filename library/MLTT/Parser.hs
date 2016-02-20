@@ -23,12 +23,18 @@ import           MLTT.Types
 
 type Parser = Trifecta.Parser
 
+piSym, lambdaSym :: String
+-- piSym     = "Π"
+-- lambdaSym = "λ"
+piSym     = "pi"
+lambdaSym = "lambda"
+
 variableStyle :: IdentifierStyle Parser
 variableStyle = IdentifierStyle
                 { _styleName              = "variable"
                 , _styleStart             = letter
                 , _styleLetter            = alphaNum
-                , _styleReserved          = HS.fromList ["Π", "λ"]
+                , _styleReserved          = HS.fromList [piSym, lambdaSym]
                 , _styleHighlight         = Identifier
                 , _styleReservedHighlight = ReservedIdentifier }
 
@@ -39,26 +45,22 @@ referenceP :: Parser Expr
 referenceP = Var <$> variableP
 
 universeP :: Parser Expr
-universeP = Universe . fromInteger <$> natural
+universeP = Universe . fromInteger <$> (text "Set" >> natural)
+
+abstractionP :: String -> Parser Abstraction
+abstractionP binder = do symbol binder
+                         v <- variableP
+                         colon
+                         t <- exprP
+                         dot
+                         e <- exprP
+                         return $ Abs v t e
 
 piP :: Parser Expr
-piP = do symbol "Π"
-         v <- variableP
-         colon
-         t <- exprP
-         dot
-         e <- exprP
-         return $ Pi $ Abs v t e
+piP = Pi <$> abstractionP piSym
 
 lambdaP :: Parser Expr
-lambdaP = do symbol "λ"
-             v <- variableP
-             colon
-             t <- exprP
-             dot
-             e <- exprP
-             return $ Lambda $ Abs v t e
-
+lambdaP = Lambda <$> abstractionP lambdaSym
 
 appP :: Parser Expr
 appP = exprP >> someSpace >> exprP
