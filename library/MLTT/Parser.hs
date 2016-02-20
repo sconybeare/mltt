@@ -76,8 +76,8 @@ exprP = choice [ universeP
 testParseExpr :: (MonadIO m) => String -> m ()
 testParseExpr = Trifecta.parseTest exprP
 
-data ParseException = ParseException Doc
-                      deriving (Show)
+newtype ParseException = ParseException Doc
+                       deriving (Show)
 
 instance Exception ParseException
 

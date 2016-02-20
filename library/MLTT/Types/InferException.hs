@@ -7,9 +7,9 @@ import           MLTT.Types.Variable
 data InferException = IECouldNotEvaluate
                     | IETypeExpected
                     | IEFunctionExpected
-                    | IESymbolNotFound Variable
-                    | IEUnknownIdentifier Variable
-                    | IEExpressionsNotEqual Expr Expr
+                    | IESymbolNotFound !Variable
+                    | IEUnknownIdentifier !Variable
+                    | IEExpressionsNotEqual !Expr !Expr
                     deriving (Show)
                              -- Make a custom 'Show' instance to get
                              -- better error messages by default.

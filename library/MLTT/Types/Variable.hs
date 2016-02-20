@@ -8,8 +8,8 @@ import           GHC.Generics  (Generic)
 
 import           Data.Hashable
 
-data Variable = StringVar String
-              | GenSym String Integer
+data Variable = StringVar !String
+              | GenSym !String !Integer
               | Dummy
               deriving (Show, Eq, Ord, Generic, Data)
 
