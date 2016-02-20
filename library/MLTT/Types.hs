@@ -13,6 +13,8 @@ import           MLTT.Types.Variable       as Exported
 import           Control.Monad.Catch       as Exported (MonadThrow, throwM)
 import           Control.Monad.State.Class as Exported (MonadState, get, put)
 
-type Context = [(Variable, (Expr, Maybe Expr))]
+import           Data.HashMap.Strict       (HashMap)
+
+type Context = HashMap Variable (Expr, Maybe Expr)
 
 type MonadInfer m = (MonadState Integer m, MonadThrow m)

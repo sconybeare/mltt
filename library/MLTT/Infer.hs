@@ -5,10 +5,18 @@ module MLTT.Infer where
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.State.Strict (evalStateT)
+
+import           Control.Lens               hiding (Context)
+import           Control.Lens.At
+
 import           Data.Functor.Identity
 import           Data.Maybe
 
+import qualified Data.HashMap.Strict        as HM
+
 import           MLTT.Types
+
+type Map k v = HM.HashMap k v
 
 infer :: (MonadThrow m) => Context -> Expr -> m Expr
 infer ctx = flip evalStateT 0 . inferType ctx
@@ -20,33 +28,33 @@ refresh (StringVar v) = do k <- get
 refresh (GenSym v _)  = refresh (StringVar v)
 refresh Dummy         = refresh (StringVar "_")
 
-subst :: (MonadInfer m) => [(Variable, Expr)] -> Expr -> m Expr
-subst s (Var v)      = return $ fromMaybe (Var v) $ lookup v s
+subst :: (MonadInfer m) => Map Variable Expr -> Expr -> m Expr
+subst s (Var v)      = return $ fromMaybe (Var v) $ s ^. at v
 subst _ (Universe k) = return $ Universe k
 subst s (Pi a)       = Pi     <$> substAbs s a
 subst s (Lambda a)   = Lambda <$> substAbs s a
 subst s (App e1 e2)  = App    <$> subst s e1 <*> subst s e2
 
-substAbs :: (MonadInfer m) => [(Variable, Expr)] -> Abstraction -> m Abstraction
+substAbs :: (MonadInfer m) => Map Variable Expr -> Abstraction -> m Abstraction
 substAbs s (Abs v t e) = do v' <- refresh v
                             t' <- subst s t
-                            e' <- subst ((v, Var v') : s) e
+                            e' <- subst (HM.insert v (Var v') s) e
                             return $ Abs v' t' e'
 
 lookupType :: (MonadInfer m) => Variable -> Context -> m Expr
-lookupType v ctx = case lookup v ctx
+lookupType v ctx = case ctx ^. at v
                    of Just (t, _) -> return t
                       Nothing     -> throwSymbolNotFound v
 
 lookupValue :: (MonadInfer m) => Variable -> Context -> m Expr
-lookupValue v ctx = helper $ lookup v ctx
+lookupValue v ctx = helper $ ctx ^. at v
   where
     helper (Just (_, Just e))  = return e
     helper (Just (_, Nothing)) = throwCouldNotEvaluate
     helper Nothing             = throwSymbolNotFound v
 
 extend :: Variable -> Expr -> Maybe Expr -> Context -> Context
-extend v t x ctx = (v, (t, x)) : ctx
+extend v t x ctx = HM.insert v (t, x) ctx
 
 inferType :: (MonadInfer m) => Context -> Expr -> m Expr
 inferType ctx (Var x)              = lookupType x ctx
@@ -70,7 +78,7 @@ inferTypeHelperLambda ctx v t e = do inferUniverse ctx t
 inferTypeHelperApp :: (MonadInfer m) => Context -> Expr -> Expr -> m Expr
 inferTypeHelperApp ctx x y = do Abs v s t <- inferPi ctx x
                                 inferType ctx y >>= checkEqual ctx s
-                                subst [(v, y)] t
+                                subst (HM.singleton v y) t
 
 inferUniverse :: (MonadInfer m) => Context -> Expr -> m Word
 inferUniverse ctx t = do u <- inferType ctx t
@@ -93,18 +101,22 @@ normalize :: (MonadInfer m) => Context -> Expr -> m Expr
 normalize _   (Universe k) = return $ Universe k
 normalize ctx (Pi ab)      = Pi     <$> normalizeAbstraction ctx ab
 normalize ctx (Lambda ab)  = Lambda <$> normalizeAbstraction ctx ab
-normalize ctx (Var v)      = normalizeHelperVar v $ lookup v ctx
-normalize ctx (App x y)    = do x' <- normalize ctx x
-                                y' <- normalize ctx y
-                                case x' of
-                                  Lambda (Abs v _ e') -> subst [(v, y)] e'
-                                  _                   -> return $ App x' y'
+normalize ctx (Var v)      = normalizeHelperVar v $ ctx ^. at v
+normalize ctx (App x y)    = normalizeHelperApp ctx x y
 
 normalizeHelperVar :: (MonadInfer m)
                       => Variable -> Maybe (Expr, Maybe Expr) -> m Expr
 normalizeHelperVar v Nothing             = throwUnknownIdentifier v
 normalizeHelperVar v (Just (_, Nothing)) = return $ Var v
 normalizeHelperVar _ (Just (_, Just x))  = return x
+
+normalizeHelperApp :: (MonadInfer m) => Context -> Expr -> Expr -> m Expr
+normalizeHelperApp ctx x y = do
+  x' <- normalize ctx x
+  y' <- normalize ctx y
+  case x' of
+    Lambda (Abs v _ e') -> subst (HM.singleton v y) e'
+    _                   -> return $ App x' y'
 
 normalizeAbstraction :: (MonadInfer m)
                         => Context -> Abstraction -> m Abstraction
@@ -125,4 +137,4 @@ equal' _             _             = return False
 
 equalAbstraction :: (MonadInfer m) => Abstraction -> Abstraction -> m Bool
 equalAbstraction (Abs v1 t1 x) (Abs v2 t2 y)
-  = (&&) <$> equal' t1 t2 <*> (equal' x =<< subst [(v2, Var v1)] y)
+  = (&&) <$> equal' t1 t2 <*> (equal' x =<< subst (HM.singleton v2 (Var v1)) y)

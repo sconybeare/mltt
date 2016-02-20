@@ -43,6 +43,7 @@ library
                         , ansi-wl-pprint        == 0.6.*
                         , data-fix              == 0.0.*
                         , here                  == 1.2.*
+                        , hashable              == 1.2.*
 
     default-language:     Haskell2010
     exposed-modules:      MLTT
