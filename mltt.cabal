@@ -49,8 +49,8 @@ library
     exposed-modules:      MLTT
                           MLTT.Types
                           MLTT.Types.Expr
-                          MLTT.Types.InferException
                           MLTT.Types.Variable
+                          MLTT.Types.Exceptions
                           MLTT.Infer
                           MLTT.Parser
     ghc-options:          -Wall

@@ -6,8 +6,8 @@ module MLTT.Types ( module Exported
                   , MonadInfer
                   ) where
 
+import           MLTT.Types.Exceptions     as Exported
 import           MLTT.Types.Expr           as Exported
-import           MLTT.Types.InferException as Exported
 import           MLTT.Types.Variable       as Exported
 
 import           Control.Monad.Catch       as Exported (MonadThrow, throwM)

@@ -22,11 +22,11 @@ infer :: (MonadThrow m) => Context -> Expr -> m Expr
 infer ctx = flip evalStateT 0 . inferType ctx
 
 refresh :: (MonadInfer m) => Variable -> m Variable
-refresh (StringVar v) = do k <- get
-                           put $ k + 1
-                           return $ GenSym v k
-refresh (GenSym v _)  = refresh (StringVar v)
-refresh Dummy         = refresh (StringVar "_")
+refresh (NamedVar v) = do k <- get
+                          put $ k + 1
+                          return $ GenSym v k
+refresh (GenSym v _) = refresh (NamedVar v)
+refresh Dummy        = refresh (NamedVar "_")
 
 subst :: (MonadInfer m) => Map Variable Expr -> Expr -> m Expr
 subst s (Var v)      = return $ fromMaybe (Var v) $ s ^. at v

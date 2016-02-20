@@ -3,7 +3,7 @@ module MLTT.Parser where
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 
-import qualified Data.HashSet                 as HS
+import qualified Data.HashSet                as HS
 
 import           Text.Parser.Char
 import           Text.Parser.Combinators
@@ -12,12 +12,9 @@ import           Text.Parser.LookAhead
 import           Text.Parser.Token
 import           Text.Parser.Token.Highlight
 
-import qualified Text.Trifecta.Delta          as Trifecta
-import qualified Text.Trifecta.Parser         as Trifecta
-import qualified Text.Trifecta.Result         as Trifecta
-
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
-import qualified Text.PrettyPrint.ANSI.Leijen as Doc
+import qualified Text.Trifecta.Delta         as Trifecta
+import qualified Text.Trifecta.Parser        as Trifecta
+import qualified Text.Trifecta.Result        as Trifecta
 
 import           MLTT.Types
 
@@ -39,7 +36,7 @@ variableStyle = IdentifierStyle
                 , _styleReservedHighlight = ReservedIdentifier }
 
 variableP :: Parser Variable
-variableP = StringVar <$> ident variableStyle
+variableP = NamedVar <$> ident variableStyle
 
 referenceP :: Parser Expr
 referenceP = Var <$> variableP
@@ -76,15 +73,10 @@ exprP = choice [ universeP
 testParseExpr :: (MonadIO m) => String -> m ()
 testParseExpr = Trifecta.parseTest exprP
 
-newtype ParseException = ParseException Doc
-                       deriving (Show)
-
-instance Exception ParseException
-
 parseExpr' :: (MonadThrow m) => Trifecta.Delta -> String -> m Expr
 parseExpr' delta str = case Trifecta.parseString exprP delta str
                        of Trifecta.Success s -> return s
-                          Trifecta.Failure d -> throwM $ ParseException d
+                          Trifecta.Failure d -> throwParseException d
 
 parseExpr :: (MonadThrow m) => String -> m Expr
 parseExpr = parseExpr' mempty
