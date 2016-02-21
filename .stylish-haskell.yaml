@@ -1,0 +1,22 @@
+steps:
+  - imports:
+      align: global
+
+  - language_pragmas:
+      style: vertical
+      remove_redundant: true
+
+  - records:
+      align: group
+
+  - tabs:
+      spaces: 8
+
+  - trailing_whitespace: {}
+
+columns: 80
+
+language_extensions:
+  - TemplateHaskell
+  - QuasiQuotes
+  - MultiParamTypeClasses
